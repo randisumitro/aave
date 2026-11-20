@@ -1,0 +1,56 @@
+{
+  "id": "com.aave.aftereffects",
+  "name": "AAVE - After Effects",
+  "version": "1.0.0",
+  "description": "Autonomous AI Video Editor plugin for Adobe After Effects - Motion Graphics Engine",
+  "author": "Randi Sumitro",
+  "host": {
+    "app": "AE",
+    "minVersion": "25.0"
+  },
+  "runtime": {
+    "javascript": "enable",
+    "cef": "enable",
+    "commonPlugins": [
+      "network"
+    ]
+  },
+  "ui": {
+    "type": "panel",
+    "title": "AAVE Motion Graphics",
+    "width": 380,
+    "height": 600,
+    "minWidth": 320,
+    "minHeight": 400
+  },
+  "permissions": {
+    "localFileSystem": "all",
+    "network": "all"
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "aave-after-effects-panel",
+      "main": "src/index.js",
+      "panel": {
+        "title": "AAVE Motion Graphics",
+        "width": 380,
+        "height": 600
+      }
+    }
+  ],
+  "icons": [
+    {
+      "path": "assets/icon.png",
+      "size": 24
+    }
+  ],
+  "requiredPermissions": [
+    "read_project",
+    "create_composition",
+    "create_layer",
+    "set_keyframe",
+    "export_alpha",
+    "render_composition"
+  ]
+}

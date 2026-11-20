@@ -1,0 +1,73 @@
+name: AAVE CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend and companion dependencies
+        run: |
+          cd backend && pip install -e .
+          cd ../apps/local-companion && pip install -e .
+          pip install pytest pytest-asyncio
+      - name: Run backend tests
+        run: |
+          cd backend
+          pytest tests/ -v
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
+          REDIS_URL: redis://localhost:6379/0
+      - name: Run local companion tests
+        run: |
+          cd apps/local-companion
+          pytest tests/ -v
+
+  test-plugins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install monorepo dependencies
+        run: npm ci
+      - name: Type check plugins
+        run: |
+          cd apps/premiere-plugin && npx tsc --noEmit
+          cd ../after-effects-plugin && npx tsc --noEmit
+      - name: Run plugin tests
+        run: |
+          cd apps/premiere-plugin && npm test
+          cd ../after-effects-plugin && npm test
+
+  build-docker:
+    needs: [test-backend, test-plugins]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build backend image
+        run: docker build -t aave-backend ./backend
+      - name: Build companion image
+        run: docker build -t aave-companion ./apps/local-companion

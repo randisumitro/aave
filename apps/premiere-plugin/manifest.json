@@ -1,0 +1,57 @@
+{
+  "id": "com.aave.premiere",
+  "name": "AAVE - Premiere Pro",
+  "version": "1.0.0",
+  "description": "Autonomous AI Video Editor plugin for Adobe Premiere Pro",
+  "author": "Randi Sumitro",
+  "host": {
+    "app": "PR",
+    "minVersion": "25.0"
+  },
+  "runtime": {
+    "javascript": "enable",
+    "cef": "enable",
+    "commonPlugins": [
+      "network"
+    ]
+  },
+  "ui": {
+    "type": "panel",
+    "title": "AAVE AI Editor",
+    "width": 380,
+    "height": 600,
+    "minWidth": 320,
+    "minHeight": 400
+  },
+  "permissions": {
+    "localFileSystem": "all",
+    "network": "all"
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "aave-premiere-panel",
+      "main": "src/index.js",
+      "panel": {
+        "title": "AAVE AI Editor",
+        "width": 380,
+        "height": 600
+      }
+    }
+  ],
+  "icons": [
+    {
+      "path": "assets/icon.png",
+      "size": 24
+    }
+  ],
+  "requiredPermissions": [
+    "read_project",
+    "read_media",
+    "write_timeline",
+    "read_sequence",
+    "create_marker",
+    "apply_effect",
+    "export_project"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "name": "aave",
+  "version": "1.0.0",
+  "description": "AAVE — Autonomous AI Video Editor for Adobe Premiere Pro & After Effects",
+  "author": "Randi Sumitro <136390141+randisumitro@users.noreply.github.com> (https://github.com/randisumitro)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/randisumitro/aave.git"
+  },
+  "homepage": "https://github.com/randisumitro/aave#readme",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:premiere": "cd apps/premiere-plugin && npm run dev",
+    "dev:after-effects": "cd apps/after-effects-plugin && npm run dev",
+    "dev:companion": "cd apps/local-companion && uvicorn main:app --host 0.0.0.0 --port 8077 --reload",
+    "dev:backend": "cd backend && uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
+    "build:premiere": "cd apps/premiere-plugin && npm run build",
+    "build:after-effects": "cd apps/after-effects-plugin && npm run build",
+    "test": "cd backend && python3 -m pytest tests/ -v",
+    "test:plugins": "npm --workspace=@aave/premiere-plugin run test && npm --workspace=@aave/after-effects-plugin run test",
+    "typecheck:plugins": "npm --workspace=@aave/premiere-plugin run typecheck && npm --workspace=@aave/after-effects-plugin run typecheck",
+    "lint": "eslint . --ext .ts,.js"
+  },
+  "dependencies": {
+    "uuid": "^14.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "python": ">=3.11.0"
+  }
+}
