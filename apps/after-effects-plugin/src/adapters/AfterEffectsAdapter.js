@@ -17,7 +17,7 @@ class AfterEffectsAdapter {
     try {
       // After Effects UXP entry point
       // eslint-disable-next-line no-undef
-      const afterEffects = window.require && window.require("aftereffects");
+      const afterEffects = globalThis.require && globalThis.require("aftereffects");
       if (!afterEffects) {
         throw new Error("After Effects DOM API not available");
       }

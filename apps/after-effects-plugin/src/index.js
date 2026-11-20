@@ -9,6 +9,7 @@
 import { Panel } from "./panels/AaveMotionPanel.js";
 import { AfterEffectsAdapter } from "./adapters/AfterEffectsAdapter.js";
 import { CompanionClient } from "./services/CompanionClient.js";
+import { BackendClient } from "./services/BackendClient.js";
 import { CommandRegistry } from "./commands/CommandRegistry.js";
 
 async function initialize() {
@@ -16,6 +17,9 @@ async function initialize() {
 
   // Initialize After Effects DOM adapter
   const aeAdapter = new AfterEffectsAdapter();
+
+  // Initialize backend service client
+  const backendClient = new BackendClient();
 
   // Initialize companion service client
   const companionClient = new CompanionClient({
@@ -28,6 +32,7 @@ async function initialize() {
   const commandRegistry = new CommandRegistry({
     aeAdapter,
     companionClient,
+    backendClient,
   });
 
   // Register all commands
@@ -37,6 +42,7 @@ async function initialize() {
   const panel = new Panel({
     aeAdapter,
     companionClient,
+    backendClient,
     commandRegistry,
   });
 
@@ -44,10 +50,19 @@ async function initialize() {
   window.__aaveContext = {
     aeAdapter,
     companionClient,
+    backendClient,
     commandRegistry,
     panel,
     version: "1.0.0",
   };
+
+  // Check backend health on startup
+  try {
+    await backendClient.checkHealth();
+    console.log("[AAVE After Effects] Backend connection established");
+  } catch (error) {
+    console.warn("[AAVE After Effects] Backend not available:", error.message);
+  }
 
   console.log("[AAVE After Effects] Plugin initialized successfully");
 }

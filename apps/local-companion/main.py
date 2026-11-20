@@ -8,14 +8,19 @@ Original Creator & Lead Architect: Randi Sumitro (https://github.com/randisumitr
 License: MIT
 """
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 import asyncio
+import hashlib
 import logging
+import os
+import subprocess
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aave-companion")
@@ -36,11 +41,60 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:*", "http://127.0.0.1:*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Security configuration ---
+
+# Companion token read from environment - never hardcoded
+COMPANION_TOKEN = os.getenv("AAVE_COMPANION_TOKEN", "")
+security = HTTPBearer(auto_error=False)
+
+# File access allowlist - only these directories are accessible
+DEFAULT_ALLOWLIST = [
+    os.path.expanduser("~/Documents"),
+    os.path.expanduser("~/Movies"),
+    os.path.expanduser("~/Desktop"),
+    "/tmp",
+]
+FILE_ALLOWLIST: Set[str] = set()
+
+# Parse allowlist from env (comma-separated)
+_allowlist_env = os.getenv("AAVE_FILE_ALLOWLIST", "")
+if _allowlist_env:
+    FILE_ALLOWLIST = {p.strip() for p in _allowlist_env.split(",") if p.strip()}
+else:
+    FILE_ALLOWLIST = set(DEFAULT_ALLOWLIST)
+
+
+def _is_path_allowed(file_path: str) -> bool:
+    """Check if a file path is within the allowlist."""
+    try:
+        resolved = os.path.realpath(file_path)
+        for allowed in FILE_ALLOWLIST:
+            allowed_resolved = os.path.realpath(allowed)
+            if resolved == allowed_resolved or resolved.startswith(allowed_resolved + os.sep):
+                return True
+        return False
+    except Exception:
+        return False
+
+
+async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Verify bearer token for companion service access."""
+    if not COMPANION_TOKEN:
+        # No token configured - allow local connections only (development mode)
+        return True
+    if not credentials or credentials.scheme != "Bearer" or credentials.credentials != COMPANION_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing companion token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return True
 
 
 # --- Models ---
@@ -83,7 +137,16 @@ class JobResponse(BaseModel):
     message: str
 
 
-# --- In-memory job store (replaced by PostgreSQL in production) ---
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+    author: str
+    ffmpeg: bool
+    ffmpeg_version: Optional[str] = None
+    jobs: int
+
+
+# --- In-memory job store ---
 
 jobs: Dict[str, Dict[str, Any]] = {}
 websocket_connections: Dict[str, WebSocket] = {}
@@ -99,20 +162,20 @@ class ConnectionManager:
         await websocket.accept()
         self.active.append(websocket)
         websocket_connections[client_id] = websocket
-        logger.info(f"Client {client_id} connected")
+        logger.info("Client %s connected", client_id)
 
     def disconnect(self, client_id: str):
         if client_id in websocket_connections:
             del websocket_connections[client_id]
         self.active = [w for w in self.active if w not in websocket_connections.values()]
-        logger.info(f"Client {client_id} disconnected")
+        logger.info("Client %s disconnected", client_id)
 
     async def send_to_client(self, client_id: str, message: Dict[str, Any]):
         if client_id in websocket_connections:
             await websocket_connections[client_id].send_json(message)
 
     async def broadcast(self, message: Dict[str, Any]):
-        for connection in self.active:
+        for connection in list(self.active):
             try:
                 await connection.send_json(message)
             except Exception:
@@ -127,16 +190,18 @@ manager = ConnectionManager()
 async def update_job_status(job_id: str, status: str, message: str, progress: Optional[int] = None):
     if job_id in jobs:
         jobs[job_id]["status"] = status
-        jobs[job_id]["message"] = jobs[job_id].get("message", [])
-        jobs[job_id]["message"].append({
+        msg_list = jobs[job_id].get("message", [])
+        if not isinstance(msg_list, list):
+            msg_list = [msg_list] if msg_list else []
+        msg_list.append({
             "status": status,
             "message": message,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
+        jobs[job_id]["message"] = msg_list
         if progress is not None:
             jobs[job_id]["progress"] = progress
 
-        # Notify via WebSocket
         await manager.broadcast({
             "type": "status",
             "job_id": job_id,
@@ -172,6 +237,30 @@ async def simulate_editing_pipeline(job_id: str, request: StartEditingRequest):
         jobs[job_id]["project_path"] = f"/projects/aave_{job_id}.prproj"
 
 
+# --- FFmpeg detection ---
+
+def detect_ffmpeg() -> Dict[str, Any]:
+    """Detect FFmpeg installation and version."""
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            version_line = result.stdout.split("\n")[0] if result.stdout else "unknown"
+            return {"available": True, "version": version_line}
+        return {"available": False, "version": None, "error": "ffmpeg command failed"}
+    except FileNotFoundError:
+        return {"available": False, "version": None, "error": "ffmpeg not found"}
+    except Exception as exc:
+        return {"available": False, "version": None, "error": str(exc)}
+
+
+FFMPEG_INFO = detect_ffmpeg()
+
+
 # --- API Routes ---
 
 @app.get("/")
@@ -185,28 +274,36 @@ async def root():
     }
 
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 async def health():
-    return {"status": "healthy", "jobs": len(jobs), "author": "Randi Sumitro"}
+    return HealthResponse(
+        status="healthy",
+        version="1.0.0",
+        author="Randi Sumitro",
+        ffmpeg=FFMPEG_INFO["available"],
+        ffmpeg_version=FFMPEG_INFO.get("version"),
+        jobs=len(jobs),
+    )
 
 
 @app.post("/api/v1/jobs/editing", response_model=JobResponse)
-async def start_editing_job(request: StartEditingRequest):
+async def start_editing_job(request: StartEditingRequest, _: bool = Depends(verify_token)):
     job_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
     jobs[job_id] = {
         "job_id": job_id,
         "status": JobStatus.CREATED,
         "message": [{
             "status": JobStatus.CREATED,
             "message": "Job created",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now,
         }],
         "progress": 0,
         "request": request.model_dump(),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": now,
+        "updated_at": now,
     }
 
-    # Start pipeline asynchronously
     asyncio.create_task(simulate_editing_pipeline(job_id, request))
 
     return JobResponse(
@@ -217,14 +314,14 @@ async def start_editing_job(request: StartEditingRequest):
 
 
 @app.get("/api/v1/jobs/{job_id}")
-async def get_job(job_id: str):
+async def get_job(job_id: str, _: bool = Depends(verify_token)):
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     return jobs[job_id]
 
 
 @app.post("/api/v1/jobs/{job_id}/cancel")
-async def cancel_job(job_id: str):
+async def cancel_job(job_id: str, _: bool = Depends(verify_token)):
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     jobs[job_id]["status"] = JobStatus.CANCELLED
@@ -233,19 +330,21 @@ async def cancel_job(job_id: str):
 
 
 @app.post("/api/v1/motion-graphics")
-async def generate_motion_graphics(request: MotionGraphicsRequest):
+async def generate_motion_graphics(request: MotionGraphicsRequest, _: bool = Depends(verify_token)):
     job_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
     jobs[job_id] = {
         "job_id": job_id,
         "status": JobStatus.MOTION_GRAPHICS,
         "message": [{
             "status": JobStatus.MOTION_GRAPHICS,
             "message": "Motion graphics generation started",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now,
         }],
         "progress": 0,
         "request": request.model_dump(),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": now,
+        "updated_at": now,
     }
 
     async def run_mg():
@@ -263,13 +362,29 @@ async def generate_motion_graphics(request: MotionGraphicsRequest):
     return JobResponse(job_id=job_id, status=JobStatus.MOTION_GRAPHICS, message="Motion graphics job started")
 
 
+# --- File access validation endpoint ---
+
+@app.post("/api/v1/files/validate")
+async def validate_file_access(file_path: str, _: bool = Depends(verify_token)):
+    """Validate that a file path is within the allowlist."""
+    allowed = _is_path_allowed(file_path)
+    return {"path": file_path, "allowed": allowed}
+
+
+# --- WebSocket endpoint with auth ---
+
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    # Simple token check via query parameter for WebSocket (browsers can't send Bearer headers easily)
+    token = websocket.query_params.get("token", "")
+    if COMPANION_TOKEN and token != COMPANION_TOKEN:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await manager.connect(websocket, client_id)
     try:
         while True:
             data = await websocket.receive_text()
-            # Echo back for connection testing
             await websocket.send_json({"type": "ack", "client_id": client_id, "received": data})
     except WebSocketDisconnect:
         manager.disconnect(client_id)
@@ -277,4 +392,5 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8077)
+
+    uvicorn.run(app, host="127.0.0.1", port=8077)

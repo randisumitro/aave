@@ -6,10 +6,11 @@
 // License: MIT
 
 class AaveMotionPanel extends HTMLElement {
-  constructor({ aeAdapter, companionClient, commandRegistry }) {
+  constructor({ aeAdapter, companionClient, backendClient, commandRegistry }) {
     super();
     this.aeAdapter = aeAdapter;
     this.companionClient = companionClient;
+    this.backendClient = backendClient;
     this.commandRegistry = commandRegistry;
     this.jobId = null;
     this.isProcessing = false;
@@ -50,7 +51,11 @@ class AaveMotionPanel extends HTMLElement {
 
         <div class="status" id="aave-status">
           <span class="status-dot" style="background: #ff4d4d;"></span>
-          <span>Disconnected</span>
+          <span>Companion: Disconnected</span>
+        </div>
+        <div class="status" id="aave-backend-status">
+          <span class="status-dot" style="background: #ff4d4d;"></span>
+          <span>Backend: Disconnected</span>
         </div>
 
         <div class="section">
@@ -109,6 +114,19 @@ class AaveMotionPanel extends HTMLElement {
     this.querySelector("#ae-cancel").addEventListener("click", () => this.cancelGeneration());
     this.querySelector("#ae-dismiss-error").addEventListener("click", () => this.dismissError());
     this.querySelector("#ae-export-alpha").addEventListener("click", () => this.exportAlpha());
+
+    // Check backend health on mount
+    this.checkBackendHealth();
+  }
+
+  async checkBackendHealth() {
+    if (!this.backendClient) return;
+    try {
+      const data = await this.backendClient.checkHealth();
+      this.updateBackendStatus(true, data);
+    } catch (error) {
+      this.updateBackendStatus(false);
+    }
   }
 
   async generateMotionGraphics() {
@@ -175,10 +193,22 @@ class AaveMotionPanel extends HTMLElement {
     const text = this.querySelector("#aave-status span:last-child");
     if (data.connected) {
       dot.style.background = "#107c10";
-      text.textContent = "Connected";
+      text.textContent = "Companion: Connected";
     } else {
       dot.style.background = "#ff4d4d";
-      text.textContent = "Disconnected";
+      text.textContent = "Companion: Disconnected";
+    }
+  }
+
+  updateBackendStatus(connected, data) {
+    const dot = this.querySelector("#aave-backend-status .status-dot");
+    const text = this.querySelector("#aave-backend-status span:last-child");
+    if (connected) {
+      dot.style.background = "#107c10";
+      text.textContent = `Backend: Connected${data && data.status ? " (" + data.status + ")" : ""}`;
+    } else {
+      dot.style.background = "#ff4d4d";
+      text.textContent = "Backend: Disconnected";
     }
   }
 

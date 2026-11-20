@@ -9,6 +9,7 @@
 import { Panel } from "./panels/AavePanel.js";
 import { PremiereAdapter } from "./adapters/PremiereAdapter.js";
 import { CompanionClient } from "./services/CompanionClient.js";
+import { BackendClient } from "./services/BackendClient.js";
 import { CommandRegistry } from "./commands/CommandRegistry.js";
 
 // Plugin lifecycle
@@ -17,6 +18,9 @@ async function initialize() {
 
   // Initialize Premiere DOM adapter
   const premiereAdapter = new PremiereAdapter();
+
+  // Initialize backend service client
+  const backendClient = new BackendClient();
 
   // Initialize companion service client
   const companionClient = new CompanionClient({
@@ -29,6 +33,7 @@ async function initialize() {
   const commandRegistry = new CommandRegistry({
     premiereAdapter,
     companionClient,
+    backendClient,
   });
 
   // Register all commands
@@ -38,6 +43,7 @@ async function initialize() {
   const panel = new Panel({
     premiereAdapter,
     companionClient,
+    backendClient,
     commandRegistry,
   });
 
@@ -45,10 +51,19 @@ async function initialize() {
   window.__aaveContext = {
     premiereAdapter,
     companionClient,
+    backendClient,
     commandRegistry,
     panel,
     version: "1.0.0",
   };
+
+  // Check backend health on startup
+  try {
+    await backendClient.checkHealth();
+    console.log("[AAVE Premiere] Backend connection established");
+  } catch (error) {
+    console.warn("[AAVE Premiere] Backend not available:", error.message);
+  }
 
   console.log("[AAVE Premiere] Plugin initialized successfully");
 }

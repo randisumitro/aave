@@ -18,7 +18,7 @@ class PremiereAdapter {
     try {
       // Premiere Pro UXP entry point
       // eslint-disable-next-line no-undef
-      const premiere = window.require && window.require("premierepro");
+      const premiere = globalThis.require && globalThis.require("premierepro");
       if (!premiere) {
         throw new Error("Premiere Pro DOM API not available");
       }

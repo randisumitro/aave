@@ -9,9 +9,10 @@
 import { v4 as uuidv4 } from "uuid";
 
 class CommandRegistry {
-  constructor({ premiereAdapter, companionClient }) {
+  constructor({ premiereAdapter, companionClient, backendClient } = {}) {
     this.premiereAdapter = premiereAdapter;
     this.companionClient = companionClient;
+    this.backendClient = backendClient;
     this.commands = new Map();
     this.commandHistory = [];
   }

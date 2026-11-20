@@ -9,10 +9,11 @@
 import { Panel } from "spectrum-uix-panel"; // Spectrum UXP UI components
 
 class AavePanel extends Panel {
-  constructor({ premiereAdapter, companionClient, commandRegistry }) {
+  constructor({ premiereAdapter, companionClient, backendClient, commandRegistry }) {
     super();
     this.premiereAdapter = premiereAdapter;
     this.companionClient = companionClient;
+    this.backendClient = backendClient;
     this.commandRegistry = commandRegistry;
     this.jobId = null;
     this.isProcessing = false;
@@ -32,9 +33,13 @@ class AavePanel extends Panel {
         <!-- Connection Status -->
         <div class="status-section" style="margin-bottom: 20px;">
           <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #b0b0b0;">Connection</div>
-          <div class="status-indicator" id="aave-status" style="display: flex; align-items: center; gap: 8px;">
+          <div class="status-indicator" id="aave-status" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
             <span class="status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #ff4d4d;"></span>
-            <span style="font-size: 12px; color: #b0b0b0;">Disconnected</span>
+            <span style="font-size: 12px; color: #b0b0b0;">Companion: Disconnected</span>
+          </div>
+          <div class="status-indicator" id="aave-backend-status" style="display: flex; align-items: center; gap: 8px;">
+            <span class="status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #ff4d4d;"></span>
+            <span style="font-size: 12px; color: #b0b0b0;">Backend: Disconnected</span>
           </div>
         </div>
 
@@ -137,6 +142,19 @@ class AavePanel extends Panel {
     // Open project button
     const openBtn = this.querySelector("#aave-open-project");
     openBtn.addEventListener("click", () => this.openGeneratedProject());
+
+    // Check backend health on mount
+    this.checkBackendHealth();
+  }
+
+  async checkBackendHealth() {
+    if (!this.backendClient) return;
+    try {
+      const data = await this.backendClient.checkHealth();
+      this.updateBackendStatus(true, data);
+    } catch (error) {
+      this.updateBackendStatus(false);
+    }
   }
 
   async startEditing() {
@@ -209,10 +227,22 @@ class AavePanel extends Panel {
     const text = this.querySelector("#aave-status span:last-child");
     if (data.connected) {
       indicator.style.background = "#107c10";
-      text.textContent = "Connected";
+      text.textContent = "Companion: Connected";
     } else {
       indicator.style.background = "#ff4d4d";
-      text.textContent = "Disconnected";
+      text.textContent = "Companion: Disconnected";
+    }
+  }
+
+  updateBackendStatus(connected, data) {
+    const indicator = this.querySelector("#aave-backend-status .status-dot");
+    const text = this.querySelector("#aave-backend-status span:last-child");
+    if (connected) {
+      indicator.style.background = "#107c10";
+      text.textContent = `Backend: Connected${data && data.status ? " (" + data.status + ")" : ""}`;
+    } else {
+      indicator.style.background = "#ff4d4d";
+      text.textContent = "Backend: Disconnected";
     }
   }
 
